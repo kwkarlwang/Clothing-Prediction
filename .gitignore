@@ -139,3 +139,5 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+4-grams_adj
+5-grams_adj
