@@ -1,4 +1,5 @@
 #%%
+import pickle
 import time
 import numpy
 import urllib
@@ -7,7 +8,15 @@ import random
 from collections import defaultdict
 from collections import Counter
 import string
-from sklearn import linear_model
+from sklearn import (
+    linear_model,
+    naive_bayes,
+    svm,
+    metrics,
+    tree,
+    neighbors,
+    decomposition,
+)
 import ast
 import importlib
 import numpy as np
@@ -15,8 +24,6 @@ from scipy.spatial import distance
 import random
 import nltk
 import pandas as pd
-
-nltk.download("averaged_perceptron_tagger")
 
 #%%
 import sys, os
@@ -171,18 +178,28 @@ top_big_adj[:10]
 # Try bigram and trigram
 
 #%%
-def top_n_adj_n_gram(word_count_dict):
+#%%
+def top_n_adj_n_gram(word_count_dict, adj_set=None):
 
-    ## get the most common ajectives
-    adj_count = {
-        key: word_count_dict[key]
-        for key in word_count_dict
-        # if either of the word is an adj, preserve
-        if any(
-            wordType[0] == "J"
-            for _, wordType in nltk.pos_tag(key if type(key) == tuple else (key,))
-        )
-    }
+    # if set of adj is given
+    if adj_set:
+        adj_count = {
+            key: word_count_dict[key]
+            for key in word_count_dict
+            # if either of the word is an adj, preserve
+            if key in adj_set
+        }
+    else:
+        ## get the most common ajectives, might be slow
+        adj_count = {
+            key: word_count_dict[key]
+            for key in word_count_dict
+            # if either of the word is an adj, preserve
+            if any(
+                wordType[0] == "J"
+                for _, wordType in nltk.pos_tag(key if type(key) == tuple else (key,))
+            )
+        }
 
     # sort them into pairs
     adj_count_pair = list(adj_count.items())
@@ -204,13 +221,38 @@ def top_adj_pipeline(fit_reviews_all, small_reviews_all, large_reviews_all, n=2)
     small_word_count = as2_analysis.count_word_freq(small_tokenized_all)
     large_word_count = as2_analysis.count_word_freq(large_tokenized_all)
 
+    # all adj for fit, small, and large
+    fit_adj, small_adj, large_adj = None, None, None
+
+    # load if the pickle exists
+    if os.path.exists(f"{n}-grams_adj"):
+        with open(f"{n}-grams_adj", "rb") as f:
+            fit_adj, small_adj, large_adj = pickle.load(f)
+
     start = time.time()
-    top_fit_grams = top_n_adj_n_gram(fit_word_count)
-    top_small_grams = top_n_adj_n_gram(small_word_count)
-    top_large_grams = top_n_adj_n_gram(large_word_count)
+    top_fit_grams = top_n_adj_n_gram(fit_word_count, fit_adj)
+    top_small_grams = top_n_adj_n_gram(small_word_count, small_adj)
+    top_large_grams = top_n_adj_n_gram(large_word_count, large_adj)
     end = time.time()
     print(f"time consume: {end-start}s")
     return top_fit_grams, top_small_grams, top_large_grams
+
+
+#%%
+def write_adj_to_file(n):
+    # get all the adj from the entire data
+    top_fit_grams, top_small_grams, top_large_grams = top_adj_pipeline(
+        fit_reviews_all, small_reviews_all, large_reviews_all, n
+    )
+    # make into sets
+    a, b, c = (
+        {word for word, _ in top_fit_grams},
+        {word for word, _ in top_small_grams},
+        {word for word, _ in top_large_grams},
+    )
+    # write to file
+    with open(f"./{n}-grams_adj", "wb") as f:
+        pickle.dump((a, b, c), f)
 
 
 #%%
@@ -219,30 +261,39 @@ top_fit_grams, top_small_grams, top_large_grams = top_adj_pipeline(
 )
 #%%
 
-top_fit_grams[:10]
+top_fit_grams[:20]
 #%%
-top_small_grams[:10]
+top_small_grams[:20]
 #%%
-top_large_grams[:10]
+top_large_grams[:20]
 
 
 #%% [markdown]
-# # Data Prediction
+# # Feature Engineering
+
+
 #%%
-random.shuffle(data_all)
+fit_data = [d for d in data_all if d["fit"] == "fit"]
+small_data = [d for d in data_all if d["fit"] == "small"]
+large_data = [d for d in data_all if d["fit"] == "large"]
+data_balanced = random.sample(fit_data, k=len(large_data)) + small_data + large_data
 #%%
-data_size = len(data_all)
+random.shuffle(data_balanced)
+#%%
+data_size = len(data_balanced)
 valid_percent = 0.2
 test_percent = 0.2
 
+
 #%%
-data_train = data_all[: int(data_size * (1 - valid_percent - test_percent))]
-data_valid = data_all[
+
+data_train = data_balanced[: int(data_size * (1 - valid_percent - test_percent))]
+data_valid = data_balanced[
     int(data_size * (1 - valid_percent - test_percent)) : int(
         data_size * (1 - test_percent)
     )
 ]
-data_test = data_all[int(data_size * (1 - test_percent)) :]
+data_test = data_balanced[int(data_size * (1 - test_percent)) :]
 
 #%%
 def extract_review(data):
@@ -263,29 +314,40 @@ def extract_review(data):
 
 
 #%% [markdown]
-# Try n-gram BoW logistic regression
+# Try n-gram BoW logistic regression/navie bayes
+
+
 #%%
-n = 1
 fit_reviews_train, small_reviews_train, large_reviews_train = extract_review(data_train)
 
 #%%
-top_fit_grams, top_small_grams, top_large_grams = top_adj_pipeline(
-    fit_reviews_train, small_reviews_train, large_reviews_train, n
-)
-
-#%%
-threshold = 500
-top_word_set = {word for word, _ in top_fit_grams[:threshold]}.union(
-    {word for word, _ in top_small_grams[:threshold]}.union(
-        {word for word, _ in top_large_grams[:threshold]}
+ns = [1, 2, 3, 4, 5]
+thresholds = [100, 500, 1000, 2000, 3000]
+top_word_set = {"small", "large", "big"}
+for n, threshold in zip(ns, thresholds):
+    top_fit_grams, top_small_grams, top_large_grams = top_adj_pipeline(
+        fit_reviews_train, small_reviews_train, large_reviews_train, n
     )
-)
+
+    a, b, c = (
+        {word for word, _ in top_fit_grams[:threshold]},
+        {word for word, _ in top_small_grams[:threshold]},
+        ({word for word, _ in top_large_grams[:threshold]}),
+    )
+    top_gram = (a | b | c) - (a & b & c)
+    print(f"unique top {n}-grams: {len(top_gram)}")
+    top_word_set |= top_gram
+
+print(f"unique top grams: {len(top_word_set)}")
+
 wordId = dict(zip(top_word_set, range(len(top_word_set))))
 #%%
-def feature(d, n=1):
+def feature(d, ns=[1]):
     feat = [0] * len(top_word_set)
     review = d["review_text"] + " " + d["review_summary"]
-    p_list = as2_analysis.tokenize_paragraph(review, n=1)
+    p_list = []
+    for n in ns:
+        p_list.extend(as2_analysis.tokenize_paragraph(review, n=n))
     for word in p_list:
         if word not in top_word_set:
             continue
@@ -296,24 +358,146 @@ def feature(d, n=1):
 
 #%%
 def encode_output(data):
-    return [0 if d["fit"] == "fit" else 1 if d["fit"] == "small" else 2 for d in data]
+    return [mapping[d["fit"]] for d in data]
 
 
 #%%
-FIT = 0
-SMALL = 1
-BIG = 2
-X_train = [feature(d, n) for d in data_train]
+mapping = {"fit": 0, "small": 1, "large": 2}
+X_train = [feature(d, ns) for d in data_train]
 y_train = encode_output(data_train)
-X_valid = [feature(d, n) for d in data_valid]
+X_valid = [feature(d, ns) for d in data_valid]
 y_valid = encode_output(data_valid)
 
+
+#%% [markdown]
+# # Modeling
+#%% [markdown]
+"""
+ Try the following numerous text classfication algorithm:
+ 
+    - Navie Bayes
+    - SVM
+    - Logistic Regression
+    - Decision Tree
+    - KNN
+"""
+
+
 #%%
-model = linear_model.LogisticRegression(C=1000)
+models_data = {}
+#%% [markdown]
+# ## Navie Bayes
 #%%
+model = naive_bayes.MultinomialNB()
 model.fit(X_train, y_train)
 y_pred = model.predict(X_valid)
+print("Navie Bayes classifcation report\n")
+print(metrics.classification_report(y_valid, y_pred))
+models_data["naive bayes"] = metrics.classification_report(
+    y_valid, y_pred, output_dict=1
+)
+
+#%% [markdown]
+"""
+## SVM
+
+Try the following kernel:
+
+    - linear
+    - rbf
+    - polynomial
+"""
 #%%
-np.mean(y_pred == y_valid)
+regs = [0.01, 1, 10, 100]
+degs = [2, 3, 4]
+models = {f"kernel=linear, C={reg}": svm.LinearSVC(C=reg) for reg in regs}
+# models.update(
+#     {f"kernel=rbf, C={reg}": svm.SVC(kernel="rbf", C=reg, gamma="auto") for reg in regs}
+# )
+# models.update(
+#     {
+#         f"kernel=poly, C={reg}, deg={deg}": svm.SVC(kernel="poly", C=reg, gamma="auto")
+#         for reg in regs
+#         for deg in degs
+#     }
+# )
+for desc, model in models.items():
+    if f"svm, {desc}" in models_data:
+        continue
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_valid)
+    print(f"SVM {desc} classifcation report\n")
+    print(metrics.classification_report(y_valid, y_pred))
+    models_data[f"svm, {desc}"] = metrics.classification_report(
+        y_valid, y_pred, output_dict=1
+    )
+
+
+#%% [markdown]
+# ## Logistic Regression
+
+#%%
+
+regs = [0.01, 1, 10, 100]
+weights = [None]
+models = {
+    f"C={reg}, weights={weight}": linear_model.LogisticRegression(
+        C=reg, class_weight=weight
+    )
+    for reg in regs
+    for weight in weights
+}
+
+
+for desc, model in models.items():
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_valid)
+    print(f"Logistic Regression {desc} classifcation report\n")
+    print(metrics.classification_report(y_valid, y_pred))
+    models_data[f"logistic regression, {desc}"] = metrics.classification_report(
+        y_valid, y_pred, output_dict=1
+    )
+
+#%% [markdown]
+# ## Decision Tree
+
+
+#%%
+# depths = [50, 100, 200]
+# models = {
+#     f"max_depth={depth}": tree.DecisionTreeClassifier(max_depth=depth)
+#     for depth in depths
+# }
+
+
+# for desc, model in models.items():
+#     model.fit(X_train, y_train)
+#     y_pred = model.predict(X_valid)
+#     print(f"Decision Tree {desc} classifcation report\n")
+#     print(metrics.classification_report(y_valid, y_pred))
+#     models_data[f"decision tree, {desc}"] = metrics.classification_report(
+#         y_valid, y_pred, output_dict=1
+#     )
+
+
+#%% [markdown]
+# ## K-nearest neighbor
+#%%
+# neighbor_nums = [1, 5, 10, 20, 50, 100]
+# models = {
+#     f"n-neighbor={neighbor_num}": neighbors.KNeighborsClassifier(
+#         n_neighbors=neighbor_num
+#     )
+#     for neighbor_num in neighbor_nums
+# }
+# for desc, model in models.items():
+#     model.fit(X_train, y_train)
+#     y_pred = model.predict(X_valid)
+#     print(f"KNN {desc} classifcation report\n")
+#     print(metrics.classification_report(y_valid, y_pred))
+#     models_data[f"knn, {desc}"] = metrics.classification_report(
+#         y_valid, y_pred, output_dict=1
+#     )
+
 
 #%%
