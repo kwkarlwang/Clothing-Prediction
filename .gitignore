@@ -3,11 +3,6 @@
 *.DS_Store
 *.gz
 *.json
-*.pdf
-*.svg
-*.jpg
-*.png
-*.txt
 *.tsv.gz
 
 

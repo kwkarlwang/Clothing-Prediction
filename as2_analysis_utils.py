@@ -89,3 +89,53 @@ def count_word_freq(docs_all):
         for ngram in doc:
             ngram_freq[ngram] += 1
     return ngram_freq
+
+def compute_confusion_matrix(y_true, y_pred, n_class=None, normalized=False):
+    """compute confusion matrix. rows are true labels, cols are predict labels
+
+    Args:
+        y_true (array): true labels
+        y_pred (array): predict labels
+        n_class (int, optional): number of classes. Defaults to None.
+        normalized (bool, optional): normalized cm by rows. Defaults to False.
+    Returns:
+        np array: confusion matrix. 
+    """
+    assert len(y_true) == len(y_pred), "y_true and y_pred must have same length"
+    if n_class is None:
+        n_class = len(set(y_true))
+
+    cm = np.zeros((n_class, n_class))
+    for true, predict in zip(y_true, y_pred):
+        cm[int(true), int(predict)] += 1
+    
+    if normalized:
+        cm /= cm.sum(axis=1).reshape(-1,1)
+    return cm
+
+def calcualte_idf_score(n_gram_set,doc_all):
+    """Calculate idf score
+
+    Args:
+        n_gram_set (list): list of most common n_grams
+        doc_all (list): list of documents, each item is break down into list of 
+        n_grams.
+
+    Returns:
+        dict: dict for idf score of each n_gram in set
+    """
+    assert isinstance(n_gram_set[0],type(doc_all[0][0])) ,"must be same data type"
+    idf_score = {}
+    
+    for n_gram in n_gram_set:
+        n_doc = 0
+        
+        for doc in doc_all:
+            if n_gram in doc:
+                n_doc += 1
+        
+        if n_doc == 0:
+            n_doc = 1
+        idf_score[n_gram] = np.log10(len(doc_all)/n_doc)
+    
+    return idf_score
