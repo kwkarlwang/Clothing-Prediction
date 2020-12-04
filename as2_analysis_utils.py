@@ -26,7 +26,7 @@ def parseData_line(path_to_file):
         yield ast.literal_eval(line)
 
 
-def tokenize_paragraph(p_str, remove_punc=True, n=1):
+def tokenize_paragraph(p_str, remove_punc=True, n=1, remove_stopwrods=False,stopwords=None):
     """Tokenize all words in a paragraph
 
     Args:
@@ -46,7 +46,10 @@ def tokenize_paragraph(p_str, remove_punc=True, n=1):
         p_str = [c if not c in string.punctuation else " " + c + " " for c in p_str]
 
     p_str = "".join(p_str)
-    p_list = p_str.strip().split()
+    p_list = p_str.strip().split() # already tokenized
+
+    if remove_stopwrods and stopwords is not None:
+        p_list = [word for word in p_list if word not in stopwords]
 
     if n == 1:
         return p_list
