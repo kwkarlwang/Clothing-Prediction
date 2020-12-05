@@ -24,6 +24,10 @@ from scipy.spatial import distance
 import random
 import nltk
 import pandas as pd
+from nltk.corpus import stopwords
+
+nltk.download("stopwords")
+
 
 #%%
 import sys, os
@@ -33,8 +37,10 @@ sys.path.insert(0, os.path.abspath("../cse258_hw/"))
 
 #%%
 import as2_analysis_utils as as2_analysis
+import as2_plot_utils as as2_plot
 
 importlib.reload(as2_analysis)
+importlib.reload(as2_plot)
 
 
 #%%
@@ -101,7 +107,19 @@ def tokenize_data_sets(dataset, n=1):
     """
     Each item of dataset is a str
     """
-    return [as2_analysis.tokenize_paragraph(d, n=n) for d in dataset]
+    return [
+        as2_analysis.tokenize_paragraph(
+            d,
+            n=n,
+            remove_stopwrods=True,
+            stopwords=[
+                word
+                for word in stopwords.words("english")
+                if word != "not" and not ("n'" in word)
+            ],
+        )
+        for d in dataset
+    ]
 
 
 #%%
@@ -177,7 +195,6 @@ top_big_adj[:10]
 #%% [markdown]
 # Try bigram and trigram
 
-#%%
 #%%
 def top_n_adj_n_gram(word_count_dict, adj_set=None):
 
@@ -257,11 +274,11 @@ def write_adj_to_file(n):
 
 #%%
 top_fit_grams, top_small_grams, top_large_grams = top_adj_pipeline(
-    fit_reviews_all, small_reviews_all, large_reviews_all, 2
+    fit_reviews_all, small_reviews_all, large_reviews_all, 3
 )
 #%%
+top_fit_grams[450:500]
 
-top_fit_grams[:20]
 #%%
 top_small_grams[:20]
 #%%
@@ -321,10 +338,13 @@ def extract_review(data):
 fit_reviews_train, small_reviews_train, large_reviews_train = extract_review(data_train)
 
 #%%
-ns = [1, 2, 3, 4, 5]
-thresholds = [100, 500, 1000, 2000, 3000]
+is_tfidf = True
+
+ns = {1: 100, 2: 500, 3: 1000, 4: 2000}
+# ns = {1: 100, 2: 500, 3: 1000, 4: 2000}
 top_word_set = {"small", "large", "big"}
-for n, threshold in zip(ns, thresholds):
+idf_score = {}
+for n, threshold in ns.items():
     top_fit_grams, top_small_grams, top_large_grams = top_adj_pipeline(
         fit_reviews_train, small_reviews_train, large_reviews_train, n
     )
@@ -334,7 +354,17 @@ for n, threshold in zip(ns, thresholds):
         {word for word, _ in top_small_grams[:threshold]},
         ({word for word, _ in top_large_grams[:threshold]}),
     )
-    top_gram = (a | b | c) - (a & b & c)
+    # top_gram = (a | b | c) - (a & b & c)
+    top_gram = a | b | c
+    if is_tfidf:
+        idf_score.update(
+            as2_analysis.calcualte_idf_score(
+                top_gram,
+                tokenize_data_sets(
+                    fit_reviews_train + small_reviews_train + large_reviews_train, n
+                ),
+            )
+        )
     print(f"unique top {n}-grams: {len(top_gram)}")
     top_word_set |= top_gram
 
@@ -342,32 +372,47 @@ print(f"unique top grams: {len(top_word_set)}")
 
 wordId = dict(zip(top_word_set, range(len(top_word_set))))
 #%%
-def feature(d, ns=[1]):
+def feature(d, ns=[1], is_tfidf=False):
     feat = [0] * len(top_word_set)
     review = d["review_text"] + " " + d["review_summary"]
     p_list = []
     for n in ns:
-        p_list.extend(as2_analysis.tokenize_paragraph(review, n=n))
+        p_list.extend(
+            as2_analysis.tokenize_paragraph(
+                review,
+                n=n,
+                remove_stopwrods=True,
+                stopwords=[
+                    word
+                    for word in stopwords.words("english")
+                    if word != "not" and not ("n'" in word)
+                ],
+            )
+        )
     for word in p_list:
         if word not in top_word_set:
             continue
         # use BoW for now
         feat[wordId[word]] += 1
+    if is_tfidf:
+        for word, score in idf_score.items():
+            feat[wordId[word]] *= score
+
     return feat
 
 
 #%%
 def encode_output(data):
-    return [mapping[d["fit"]] for d in data]
+    return [labels[d["fit"]] for d in data]
 
 
 #%%
-mapping = {"fit": 0, "small": 1, "large": 2}
-X_train = [feature(d, ns) for d in data_train]
-y_train = encode_output(data_train)
-X_valid = [feature(d, ns) for d in data_valid]
-y_valid = encode_output(data_valid)
 
+labels = {"fit": 0, "small": 1, "large": 2}
+X_train = [feature(d, ns, is_tfidf) for d in data_train]
+y_train = encode_output(data_train)
+X_valid = [feature(d, ns, is_tfidf) for d in data_valid]
+y_valid = encode_output(data_valid)
 
 #%% [markdown]
 # # Modeling
@@ -392,10 +437,51 @@ model = naive_bayes.MultinomialNB()
 model.fit(X_train, y_train)
 y_pred = model.predict(X_valid)
 print("Navie Bayes classifcation report\n")
+as2_plot.plot_cm(
+    metrics.confusion_matrix(y_valid, y_pred, normalize="true"), list(labels.keys())
+)
 print(metrics.classification_report(y_valid, y_pred))
+print()
 models_data["naive bayes"] = metrics.classification_report(
     y_valid, y_pred, output_dict=1
 )
+
+#%% [markdown]
+# Try dimensionality reduction for more time consuimg algorithm
+#%%
+svd = decomposition.TruncatedSVD(n_components=1000)
+X_train_reduce = svd.fit_transform(X_train)
+X_valid_reduce = svd.transform(X_valid)
+
+#%% [markdown]
+# ## Logistic Regression
+
+#%%
+
+regs = [0.1, 1, 10, 100]
+weights = [None]
+models = {
+    f"C={reg}, weights={weight}": linear_model.LogisticRegression(
+        C=reg, class_weight=weight
+    )
+    for reg in regs
+    for weight in weights
+}
+
+
+for desc, model in models.items():
+    model.fit(X_train_reduce, y_train)
+    y_pred = model.predict(X_valid_reduce)
+    print(f"Logistic Regression {desc} classifcation report\n")
+    as2_plot.plot_cm(
+        metrics.confusion_matrix(y_valid, y_pred, normalize="true"), list(labels.keys())
+    )
+    print(metrics.classification_report(y_valid, y_pred))
+    print()
+    models_data[f"logistic regression, {desc}"] = metrics.classification_report(
+        y_valid, y_pred, output_dict=1
+    )
+
 
 #%% [markdown]
 """
@@ -408,96 +494,84 @@ Try the following kernel:
     - polynomial
 """
 #%%
-regs = [0.01, 1, 10, 100]
-degs = [2, 3, 4]
-models = {f"kernel=linear, C={reg}": svm.LinearSVC(C=reg) for reg in regs}
-# models.update(
-#     {f"kernel=rbf, C={reg}": svm.SVC(kernel="rbf", C=reg, gamma="auto") for reg in regs}
-# )
-# models.update(
-#     {
-#         f"kernel=poly, C={reg}, deg={deg}": svm.SVC(kernel="poly", C=reg, gamma="auto")
-#         for reg in regs
-#         for deg in degs
-#     }
-# )
+svd = decomposition.TruncatedSVD(n_components=1000)
+X_train_reduce = svd.fit_transform(X_train)
+X_valid_reduce = svd.transform(X_valid)
+
+
+#%%
+
+regs = [0.1, 1, 10]
+models = {}
+models.update({f"kernel=linear, C={reg}": svm.LinearSVC(C=reg) for reg in regs})
 for desc, model in models.items():
-    if f"svm, {desc}" in models_data:
-        continue
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_valid)
-    print(f"SVM {desc} classifcation report\n")
+    model.fit(X_train_reduce, y_train)
+    y_pred = model.predict(X_valid_reduce)
+    print(f"SVM {desc} classifcation report and confusion matrix\n")
+    as2_plot.plot_cm(
+        metrics.confusion_matrix(y_valid, y_pred, normalize="true"), list(labels.keys())
+    )
     print(metrics.classification_report(y_valid, y_pred))
+    print()
     models_data[f"svm, {desc}"] = metrics.classification_report(
         y_valid, y_pred, output_dict=1
     )
 
-
-#%% [markdown]
-# ## Logistic Regression
-
 #%%
-
-regs = [0.01, 1, 10, 100]
-weights = [None]
-models = {
-    f"C={reg}, weights={weight}": linear_model.LogisticRegression(
-        C=reg, class_weight=weight
-    )
-    for reg in regs
-    for weight in weights
-}
+svd = decomposition.TruncatedSVD(n_components=100)
+X_train_reduce = svd.fit_transform(X_train)
+X_valid_reduce = svd.transform(X_valid)
 
 
-for desc, model in models.items():
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_valid)
-    print(f"Logistic Regression {desc} classifcation report\n")
-    print(metrics.classification_report(y_valid, y_pred))
-    models_data[f"logistic regression, {desc}"] = metrics.classification_report(
-        y_valid, y_pred, output_dict=1
-    )
 
 #%% [markdown]
 # ## Decision Tree
 
-
 #%%
-# depths = [50, 100, 200]
-# models = {
-#     f"max_depth={depth}": tree.DecisionTreeClassifier(max_depth=depth)
-#     for depth in depths
-# }
+depths = [5, 10, 20, 50]
+models = {
+    f"max_depth={depth}": tree.DecisionTreeClassifier(max_depth=depth)
+    for depth in depths
+}
 
 
-# for desc, model in models.items():
-#     model.fit(X_train, y_train)
-#     y_pred = model.predict(X_valid)
-#     print(f"Decision Tree {desc} classifcation report\n")
-#     print(metrics.classification_report(y_valid, y_pred))
-#     models_data[f"decision tree, {desc}"] = metrics.classification_report(
-#         y_valid, y_pred, output_dict=1
-#     )
+for desc, model in models.items():
+    # delay?
+    model.fit(X_train_reduce, y_train)
+    y_pred = model.predict(X_valid_reduce)
+    print(f"Decision Tree {desc} classifcation report\n")
+    as2_plot.plot_cm(
+        metrics.confusion_matrix(y_valid, y_pred, normalize="true"), list(labels.keys())
+    )
+    print(metrics.classification_report(y_valid, y_pred))
+    print()
+    models_data[f"decision tree, {desc}"] = metrics.classification_report(
+        y_valid, y_pred, output_dict=1
+    )
 
 
 #%% [markdown]
 # ## K-nearest neighbor
 #%%
-# neighbor_nums = [1, 5, 10, 20, 50, 100]
-# models = {
-#     f"n-neighbor={neighbor_num}": neighbors.KNeighborsClassifier(
-#         n_neighbors=neighbor_num
-#     )
-#     for neighbor_num in neighbor_nums
-# }
-# for desc, model in models.items():
-#     model.fit(X_train, y_train)
-#     y_pred = model.predict(X_valid)
-#     print(f"KNN {desc} classifcation report\n")
-#     print(metrics.classification_report(y_valid, y_pred))
-#     models_data[f"knn, {desc}"] = metrics.classification_report(
-#         y_valid, y_pred, output_dict=1
-#     )
+neighbor_nums = [20, 50, 100, 300]
+models = {
+    f"n-neighbor={neighbor_num}": neighbors.KNeighborsClassifier(
+        n_neighbors=neighbor_num
+    )
+    for neighbor_num in neighbor_nums
+}
+for desc, model in models.items():
+    model.fit(X_train_reduce, y_train)
+    y_pred = model.predict(X_valid_reduce)
+    print(f"KNN {desc} classifcation report\n")
+    as2_plot.plot_cm(
+        metrics.confusion_matrix(y_valid, y_pred, normalize="true"), list(labels.keys())
+    )
+    print(metrics.classification_report(y_valid, y_pred))
+    print()
+    models_data[f"knn, {desc}"] = metrics.classification_report(
+        y_valid, y_pred, output_dict=1
+    )
 
 
 #%%
