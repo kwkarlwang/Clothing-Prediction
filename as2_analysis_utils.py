@@ -142,3 +142,32 @@ def calcualte_idf_score(n_gram_set,doc_all):
         idf_score[n_gram] = np.log10(len(doc_all)/n_doc)
     
     return idf_score
+
+def train_val_test_pipeline(model,data_all):
+    """complete train, validation and test pipeline
+
+    Args:
+        model (model type): model for prediction
+        data_all (dict): dictionary contains train_x, train_y
+                        val_x, val_y
+                        test_x,test_y
+
+    Returns:
+        tuple: validation_confusion_matrix, test_cm
+    """
+    # train
+    model.fit(data_all["train_x"],data_all["train_y"])
+
+    # predict
+    y_val_pred = model.predict(data_all["val_x"])
+    y_test_pred = model.predict(data_all["test_x"])
+
+    # compute confusion matrix
+    val_cm = compute_confusion_matrix(data_all["val_y"],
+                                        y_val_pred,
+                                        normalized=True)
+    test_cm = compute_confusion_matrix(data_all["test_y"],
+                                        y_test_pred,
+                                        normalized=True)
+    
+    return val_cm, test_cm
