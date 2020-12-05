@@ -155,6 +155,7 @@ def train_val_test_pipeline(model,data_all):
     Returns:
         tuple: validation_confusion_matrix, test_cm
     """
+    assert isinstance(data_all,dict),"data_all must be dictionary"
     # train
     model.fit(data_all["train_x"],data_all["train_y"])
 
