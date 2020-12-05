@@ -26,7 +26,9 @@ def parseData_line(path_to_file):
         yield ast.literal_eval(line)
 
 
-def tokenize_paragraph(p_str, remove_punc=True, n=1, remove_stopwrods=False,stopwords=None):
+def tokenize_paragraph(
+    p_str, remove_punc=True, n=1, remove_stopwrods=False, stopwords=None
+):
     """Tokenize all words in a paragraph
 
     Args:
@@ -46,7 +48,7 @@ def tokenize_paragraph(p_str, remove_punc=True, n=1, remove_stopwrods=False,stop
         p_str = [c if not c in string.punctuation else " " + c + " " for c in p_str]
 
     p_str = "".join(p_str)
-    p_list = p_str.strip().split() # already tokenized
+    p_list = p_str.strip().split()  # already tokenized
 
     if remove_stopwrods and stopwords is not None:
         p_list = [word for word in p_list if word not in stopwords]
@@ -93,6 +95,7 @@ def count_word_freq(docs_all):
             ngram_freq[ngram] += 1
     return ngram_freq
 
+
 def compute_confusion_matrix(y_true, y_pred, n_class=None, normalized=False):
     """compute confusion matrix. rows are true labels, cols are predict labels
 
@@ -111,12 +114,13 @@ def compute_confusion_matrix(y_true, y_pred, n_class=None, normalized=False):
     cm = np.zeros((n_class, n_class))
     for true, predict in zip(y_true, y_pred):
         cm[int(true), int(predict)] += 1
-    
+
     if normalized:
-        cm /= cm.sum(axis=1).reshape(-1,1)
+        cm /= cm.sum(axis=1).reshape(-1, 1)
     return cm
 
-def calcualte_idf_score(n_gram_set,doc_all):
+
+def calcualte_idf_score(n_gram_set, doc_all):
     """Calculate idf score
 
     Args:
@@ -127,23 +131,25 @@ def calcualte_idf_score(n_gram_set,doc_all):
     Returns:
         dict: dict for idf score of each n_gram in set
     """
-    assert isinstance(n_gram_set[0],type(doc_all[0][0])) ,"must be same data type"
+    # assert isinstance(n_gram_set[0],type(doc_all[0][0])) ,"must be same data type"
     idf_score = {}
-    
+
+    doc_all = [set(doc) for doc in doc_all]
     for n_gram in n_gram_set:
         n_doc = 0
-        
+
         for doc in doc_all:
             if n_gram in doc:
                 n_doc += 1
-        
+
         if n_doc == 0:
             n_doc = 1
-        idf_score[n_gram] = np.log10(len(doc_all)/n_doc)
-    
+        idf_score[n_gram] = np.log10(len(doc_all) / n_doc)
+
     return idf_score
 
-def train_val_test_pipeline(model,data_all):
+
+def train_val_test_pipeline(model, data_all):
     """complete train, validation and test pipeline
 
     Args:
@@ -156,18 +162,14 @@ def train_val_test_pipeline(model,data_all):
         tuple: validation_confusion_matrix, test_cm
     """
     # train
-    model.fit(data_all["train_x"],data_all["train_y"])
+    model.fit(data_all["train_x"], data_all["train_y"])
 
     # predict
     y_val_pred = model.predict(data_all["val_x"])
     y_test_pred = model.predict(data_all["test_x"])
 
     # compute confusion matrix
-    val_cm = compute_confusion_matrix(data_all["val_y"],
-                                        y_val_pred,
-                                        normalized=True)
-    test_cm = compute_confusion_matrix(data_all["test_y"],
-                                        y_test_pred,
-                                        normalized=True)
-    
+    val_cm = compute_confusion_matrix(data_all["val_y"], y_val_pred, normalized=True)
+    test_cm = compute_confusion_matrix(data_all["test_y"], y_test_pred, normalized=True)
+
     return val_cm, test_cm
