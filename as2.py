@@ -354,8 +354,8 @@ for n, threshold in ns.items():
         {word for word, _ in top_small_grams[:threshold]},
         ({word for word, _ in top_large_grams[:threshold]}),
     )
-    # top_gram = (a | b | c) - (a & b & c)
-    top_gram = a | b | c
+    top_gram = (a | b | c) - (a & b & c)
+    # top_gram = a | b | c
     if is_tfidf:
         idf_score.update(
             as2_analysis.calcualte_idf_score(
@@ -449,7 +449,7 @@ models_data["naive bayes"] = metrics.classification_report(
 #%% [markdown]
 # Try dimensionality reduction for more time consuimg algorithm
 #%%
-svd = decomposition.TruncatedSVD(n_components=1000)
+svd = decomposition.TruncatedSVD(n_components=50)
 X_train_reduce = svd.fit_transform(X_train)
 X_valid_reduce = svd.transform(X_valid)
 
@@ -494,9 +494,9 @@ Try the following kernel:
     - polynomial
 """
 #%%
-svd = decomposition.TruncatedSVD(n_components=1000)
-X_train_reduce = svd.fit_transform(X_train)
-X_valid_reduce = svd.transform(X_valid)
+# svd = decomposition.TruncatedSVD(n_components=50)
+# X_train_reduce = svd.fit_transform(X_train)
+# X_valid_reduce = svd.transform(X_valid)
 
 
 #%%
@@ -521,7 +521,6 @@ for desc, model in models.items():
 svd = decomposition.TruncatedSVD(n_components=100)
 X_train_reduce = svd.fit_transform(X_train)
 X_valid_reduce = svd.transform(X_valid)
-
 
 
 #%% [markdown]
@@ -574,4 +573,6 @@ for desc, model in models.items():
     )
 
 
-#%%
+
+
+#%% 

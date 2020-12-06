@@ -5,7 +5,9 @@ import pandas as pd
 import seaborn as sn
 import matplotlib.pyplot as plt
 import numpy as np
-def plot_cm(cm, class_labels, fmt='g', figsize=(5, 5), title="confusion matrix"):
+
+
+def plot_cm(cm, class_labels, fmt="g", figsize=(5, 5), title="confusion matrix"):
     """plot confusion matrix using seaborn
 
     Args:

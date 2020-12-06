@@ -6,9 +6,6 @@
 *.tsv.gz
 
 
-# ignore data
-data/
-assignment1_data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
