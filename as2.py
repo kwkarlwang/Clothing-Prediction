@@ -111,7 +111,7 @@ def tokenize_data_sets(dataset, n=1):
         as2_analysis.tokenize_paragraph(
             d,
             n=n,
-            remove_stopwrods=True,
+            remove_stopwrods=False,
             stopwords=[
                 word
                 for word in stopwords.words("english")
@@ -153,43 +153,6 @@ def top_n_adj(word_count_dict):
     adj_count_pair.sort(reverse=True)
 
     return adj_count_pair
-
-
-#%%
-start = time.time()
-top_small_adj = top_n_adj(small_word_count)
-
-
-top_big_adj = top_n_adj(large_word_count)
-
-
-## get the most common ajectives
-adj_fit_count = {
-    key: fit_word_count[key]
-    for key in fit_word_count
-    if nltk.pos_tag([key])[0][1][0] == "J"
-}
-
-end = time.time()
-print(f"time consume: {end-start}s")
-#%%
-adj_fit_count_pair = [(count, key) for key, count in adj_fit_count.items()]
-
-
-#%%
-adj_fit_count_pair.sort(reverse=True)
-
-
-#%%
-adj_fit_count_pair[:10]
-
-
-#%%
-top_small_adj[:10]
-
-
-#%%
-top_big_adj[:10]
 
 
 #%% [markdown]
@@ -272,19 +235,6 @@ def write_adj_to_file(n):
         pickle.dump((a, b, c), f)
 
 
-#%%
-top_fit_grams, top_small_grams, top_large_grams = top_adj_pipeline(
-    fit_reviews_all, small_reviews_all, large_reviews_all, 3
-)
-#%%
-top_fit_grams[450:500]
-
-#%%
-top_small_grams[:20]
-#%%
-top_large_grams[:20]
-
-
 #%% [markdown]
 # # Feature Engineering
 
@@ -340,7 +290,10 @@ fit_reviews_train, small_reviews_train, large_reviews_train = extract_review(dat
 #%%
 is_tfidf = True
 
-ns = {1: 100, 2: 500, 3: 1000, 4: 2000}
+# ns = {1: 100, 2: 500, 3: 500, 4: 500}
+# ns = {1: 100}
+# ns = {1: 100, 2: 500}
+ns = {1: 100, 2: 500, 3: 1000}
 # ns = {1: 100, 2: 500, 3: 1000, 4: 2000}
 top_word_set = {"small", "large", "big"}
 idf_score = {}
@@ -354,8 +307,8 @@ for n, threshold in ns.items():
         {word for word, _ in top_small_grams[:threshold]},
         ({word for word, _ in top_large_grams[:threshold]}),
     )
-    top_gram = (a | b | c) - (a & b & c)
-    # top_gram = a | b | c
+    # top_gram = (a | b | c) - (a & b & c)
+    top_gram = a | b | c
     if is_tfidf:
         idf_score.update(
             as2_analysis.calcualte_idf_score(
@@ -381,7 +334,7 @@ def feature(d, ns=[1], is_tfidf=False):
             as2_analysis.tokenize_paragraph(
                 review,
                 n=n,
-                remove_stopwrods=True,
+                remove_stopwrods=False,
                 stopwords=[
                     word
                     for word in stopwords.words("english")
@@ -413,7 +366,12 @@ X_train = [feature(d, ns, is_tfidf) for d in data_train]
 y_train = encode_output(data_train)
 X_valid = [feature(d, ns, is_tfidf) for d in data_valid]
 y_valid = encode_output(data_valid)
+# X_test = [feature(d, ns, is_tfidf) for d in data_test]
+# y_test = encode_output(data_test)
 
+#%%
+# X_valid = X_test
+# y_valid = y_test
 #%% [markdown]
 # # Modeling
 #%% [markdown]
@@ -427,6 +385,8 @@ y_valid = encode_output(data_valid)
     - KNN
 """
 
+#%%
+gram_ber = {}
 
 #%%
 models_data = {}
@@ -445,11 +405,17 @@ print()
 models_data["naive bayes"] = metrics.classification_report(
     y_valid, y_pred, output_dict=1
 )
+d = metrics.classification_report(y_valid, y_pred, output_dict=1)
 
+#%%
+gram_ber[3] = 1 - d["macro avg"]["recall"]
+
+#%%
+gram_ber
 #%% [markdown]
 # Try dimensionality reduction for more time consuimg algorithm
 #%%
-svd = decomposition.TruncatedSVD(n_components=50)
+svd = decomposition.TruncatedSVD(n_components=100)
 X_train_reduce = svd.fit_transform(X_train)
 X_valid_reduce = svd.transform(X_valid)
 
@@ -458,7 +424,7 @@ X_valid_reduce = svd.transform(X_valid)
 
 #%%
 
-regs = [0.1, 1, 10, 100]
+regs = [1]
 weights = [None]
 models = {
     f"C={reg}, weights={weight}": linear_model.LogisticRegression(
@@ -470,8 +436,8 @@ models = {
 
 
 for desc, model in models.items():
-    model.fit(X_train_reduce, y_train)
-    y_pred = model.predict(X_valid_reduce)
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_valid)
     print(f"Logistic Regression {desc} classifcation report\n")
     as2_plot.plot_cm(
         metrics.confusion_matrix(y_valid, y_pred, normalize="true"), list(labels.keys())
@@ -501,7 +467,7 @@ Try the following kernel:
 
 #%%
 
-regs = [0.1, 1, 10]
+regs = [1]
 models = {}
 models.update({f"kernel=linear, C={reg}": svm.LinearSVC(C=reg) for reg in regs})
 for desc, model in models.items():
@@ -517,17 +483,12 @@ for desc, model in models.items():
         y_valid, y_pred, output_dict=1
     )
 
-#%%
-svd = decomposition.TruncatedSVD(n_components=100)
-X_train_reduce = svd.fit_transform(X_train)
-X_valid_reduce = svd.transform(X_valid)
-
 
 #%% [markdown]
 # ## Decision Tree
 
 #%%
-depths = [5, 10, 20, 50]
+depths = [5]
 models = {
     f"max_depth={depth}": tree.DecisionTreeClassifier(max_depth=depth)
     for depth in depths
@@ -552,7 +513,7 @@ for desc, model in models.items():
 #%% [markdown]
 # ## K-nearest neighbor
 #%%
-neighbor_nums = [20, 50, 100, 300]
+neighbor_nums = [300]
 models = {
     f"n-neighbor={neighbor_num}": neighbors.KNeighborsClassifier(
         n_neighbors=neighbor_num
@@ -573,6 +534,12 @@ for desc, model in models.items():
     )
 
 
+#%%
+with open("./data/test_result.pkl", "wb") as f:
+    pickle.dump(models_data, f)
 
+#%%
+import matplotlib.pyplot as plt
 
-#%% 
+plt.plot([a for a, _ in gram_ber], [b for _, b in gram_ber])
+#%%
