@@ -235,6 +235,12 @@ def write_adj_to_file(n):
         pickle.dump((a, b, c), f)
 
 
+#%%
+top_fit_grams, top_small_grams, top_large_grams = top_adj_pipeline(
+    fit_reviews_all, small_reviews_all, large_reviews_all, 3
+)
+#%%
+top_fit_grams[:10]
 #%% [markdown]
 # # Feature Engineering
 
@@ -293,8 +299,9 @@ is_tfidf = True
 # ns = {1: 100, 2: 500, 3: 500, 4: 500}
 # ns = {1: 100}
 # ns = {1: 100, 2: 500}
-ns = {1: 100, 2: 500, 3: 1000}
-# ns = {1: 100, 2: 500, 3: 1000, 4: 2000}
+# ns = {1: 100, 2: 500, 3: 1000}
+# ns={1:100, 2:500}
+ns = {1: 100, 2: 500, 3: 1000, 4: 2000}
 top_word_set = {"small", "large", "big"}
 idf_score = {}
 for n, threshold in ns.items():
@@ -385,8 +392,6 @@ y_valid = encode_output(data_valid)
     - KNN
 """
 
-#%%
-gram_ber = {}
 
 #%%
 models_data = {}
@@ -405,13 +410,23 @@ print()
 models_data["naive bayes"] = metrics.classification_report(
     y_valid, y_pred, output_dict=1
 )
-d = metrics.classification_report(y_valid, y_pred, output_dict=1)
 
 #%%
-gram_ber[3] = 1 - d["macro avg"]["recall"]
-
+prob = np.exp(model.feature_log_prob_)
 #%%
-gram_ber
+wordInt = {i: word for word, i in wordId.items()}
+#%%
+highestProb = prob.argsort(axis=1)
+#%%
+prob[0][highestProb[0][-1]]
+#%%
+[wordInt[num] for num in highestProb[0][-10:]]
+#%%
+[wordInt[num] for num in highestProb[1][-10:]]
+#%%
+[wordInt[num] for num in highestProb[2][-10:]]
+#%%
+
 #%% [markdown]
 # Try dimensionality reduction for more time consuimg algorithm
 #%%
